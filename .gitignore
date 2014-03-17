@@ -1,0 +1,4 @@
+*.suo
+*.vcproj.user
+bin
+obj
