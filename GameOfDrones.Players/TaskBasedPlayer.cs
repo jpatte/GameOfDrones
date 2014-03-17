@@ -404,7 +404,7 @@ namespace GameOfDrones
         void AllocateDronesToTasks(ContextInfo context, IList<Task> tasks);
     }
 
-    class BasicDroneAllocator : IDroneAllocator
+    class PriorityBasedBasicDroneAllocator : IDroneAllocator
     {
         public void AllocateDronesToTasks(ContextInfo context, IList<Task> tasks)
         {
@@ -475,16 +475,10 @@ namespace GameOfDrones
             var task = droneInfo.CurrentTask;
             if(task != null)
             {
-                switch(task.Type)
-                {
-                    case TaskType.Attack:
-                        return droneInfo.Drone.Position.GetZoneBorderPoint(task.AssociatedZone);
+                if(task.Type == TaskType.Defend && task.AssociatedZone.Contains(droneInfo.Drone.Position))
+                    return droneInfo.Drone.Position;
 
-                    case TaskType.Defend:
-                        if(task.AssociatedZone.Contains(droneInfo.Drone.Position))
-                            return droneInfo.Drone.Position;
-                        return droneInfo.Drone.Position.GetZoneBorderPoint(task.AssociatedZone);
-                }        
+                return droneInfo.Drone.Position.GetZoneBorderPoint(task.AssociatedZone);
             }
 
             return droneInfo.Drone.Position;
@@ -498,7 +492,7 @@ namespace GameOfDrones
         private readonly IDroneActivityObserver _droneActivityObserver = new BasicDroneActivityObserver();
         private readonly IZoneEvaluator _zoneEvaluator = new BasicZoneEvaluator();
         private readonly ITaskOrganizer _taskOrganizer = new OneTaskPerZoneOrganizer();
-        private readonly IDroneAllocator _droneAllocator = new BasicDroneAllocator();
+        private readonly IDroneAllocator _droneAllocator = new PriorityBasedBasicDroneAllocator();
         private readonly IDroneCommander _droneCommander = new BasicDroneCommander();
 
         public int TeamId { get; set; }
