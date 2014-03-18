@@ -1,17 +1,22 @@
 ﻿using System;
 using System.Collections.Generic;
 
-namespace GameOfDrones
+namespace GameOfDrones.Simulator
 {
     class Program
     {
         static void Main(string[] args)
         {
-            var client = new ClientSimulator(3, 6, new TaskBasedPlayer(), new TaskBasedPlayer());
-            client.Initialize();
+            var player1 = new ContestPlayerWrapper(@"C:\Projects\GameOfDrones\History\Mark1\GameOfDrones.ContestClient.exe");
+            var player2 = new ContestPlayerWrapper(@"C:\Projects\GameOfDrones\History\Mark1\GameOfDrones.ContestClient.exe");
 
-            while(!client.HasFinished)
-                client.Update();
+            using(var client = new ClientSimulator(3, 6, player1, player2))
+            {
+                client.Initialize();
+
+                while(!client.HasFinished)
+                    client.Update();                
+            }
         }
     }
 }

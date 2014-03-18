@@ -4,7 +4,7 @@ using System.Linq;
 
 namespace GameOfDrones
 {
-    public class ClientSimulator
+    public class ClientSimulator : IDisposable
     {
         private readonly int _nbrDrones;
         private readonly int _nbrZones;
@@ -21,6 +21,12 @@ namespace GameOfDrones
                 player.TeamId = id++;
 
             this.GenerateContext();
+        }
+
+        public void Dispose()
+        {
+            foreach(var player in _players)
+                player.Dispose();
         }
 
         public void GenerateContext()
@@ -44,7 +50,7 @@ namespace GameOfDrones
                 Point zoneCenter;
                 do
                 {
-                    zoneCenter = new Point(minZoneX + random.Next(maxZoneX), minZoneY + random.Next(maxZoneY));
+                    zoneCenter = new Point(random.Next(minZoneX, maxZoneX), random.Next(minZoneY, maxZoneY));
                 } while(this.Context.Zones.Any(z => zoneCenter.DistanceTo(z.Center) < minDistanceBetweenZones));
 
                 this.Context.Zones.Add(new Zone(i, zoneCenter));
@@ -109,6 +115,8 @@ namespace GameOfDrones
         }
 
         public bool HasFinished { get { return this.Context.RemainingTurns <= 0; } }
+
+        public int WinnerId { get { return this.PlayerScores.IndexOfMax(); } }
 
         public GameContext Context { get; set; }
         public int[] PlayerScores { get; set; }

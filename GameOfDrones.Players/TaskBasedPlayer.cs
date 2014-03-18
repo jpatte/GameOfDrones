@@ -521,5 +521,9 @@ namespace GameOfDrones
 
             return _contextInfo.MyDrones.Select(d => d.Destination);
         }
+
+        public void Dispose()
+        {
+        }
     }
 }

@@ -84,6 +84,27 @@ namespace GameOfDrones
             }
         }
 
+        public static int IndexOfMax<TSource>(this IList<TSource> source)
+        {
+            return Enumerable.Range(0, source.Count).MaxBy(id => source[id]);
+        }
+
+        public static int IndexOfMaxBy<TSource, TKey>(this IList<TSource> source,
+            Func<TSource, TKey> selector)
+        {
+            return Enumerable.Range(0, source.Count).MaxBy(id => selector(source[id]));
+        }
+
+        public static int IndexOfMin<TSource>(this IList<TSource> source)
+        {
+            return Enumerable.Range(0, source.Count).MinBy(id => source[id]);
+        }
+
+        public static int IndexOfMinBy<TSource, TKey>(this IList<TSource> source,
+            Func<TSource, TKey> selector)
+        {
+            return Enumerable.Range(0, source.Count).MinBy(id => selector(source[id]));
+        }
         public static double DotProduct(Point v1a, Point v1b, Point v2a, Point v2b)
         {
             var x1 = v1b.X - v1a.X;

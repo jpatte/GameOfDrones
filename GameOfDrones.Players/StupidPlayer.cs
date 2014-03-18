@@ -20,5 +20,9 @@ namespace GameOfDrones
                 yield return new Point(GameContext.FieldWidth - 1, GameContext.FieldHeight - 1);
             }
         }
+
+        public void Dispose()
+        {
+        }
     }
 }

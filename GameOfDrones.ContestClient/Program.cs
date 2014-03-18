@@ -1,16 +1,18 @@
 ﻿using System;
 
-namespace GameOfDrones
+namespace GameOfDrones.Client
 {
     static class Program
     {
         static void Main()
         {
-            var client = new ContestClient(Console.In, Console.Out, new TaskBasedPlayer());
-            client.Initialize();
+            using(var client = new ContestClient(Console.In, Console.Out, new TaskBasedPlayer()))
+            {
+                client.Initialize();
 
-            while(true)
-                client.Update();
+                while(!client.HasFinished)
+                    client.Update();            
+            }       
         }
     }
 }

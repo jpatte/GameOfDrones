@@ -91,7 +91,7 @@ namespace GameOfDrones
         public IList<Team> Teams { get; set; }
     }
 
-    public interface IPlayer
+    public interface IPlayer : IDisposable
     {
         int TeamId { get; set; }
 

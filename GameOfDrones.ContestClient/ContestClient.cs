@@ -1,9 +1,10 @@
+using System;
 using System.IO;
 using System.Linq;
 
 namespace GameOfDrones
 {
-    public class ContestClient
+    public class ContestClient : IDisposable
     {
         private readonly TextReader _input;
         private readonly TextWriter _output;
@@ -31,6 +32,11 @@ namespace GameOfDrones
 
             _player.Initialize(this.Context);
             _isFirstTurn = true;
+        }
+
+        public void Dispose()
+        {
+            _player.Dispose();
         }
 
         public void Update()
@@ -68,6 +74,8 @@ namespace GameOfDrones
             var xy = this.ReadIntegers();
             return new Point { X = xy[0], Y = xy[1] };
         }
+
+        public bool HasFinished { get { return this.Context.RemainingTurns <= 0; } }
 
         private void WritePoint(Point point)
         {

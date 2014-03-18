@@ -2,3 +2,5 @@
 *.vcproj.user
 bin
 obj
+/History
+/packages
