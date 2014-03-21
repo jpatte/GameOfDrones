@@ -7,10 +7,12 @@ namespace GameOfDrones.Simulator
     {
         static void Main(string[] args)
         {
-            var player1 = new ContestPlayerWrapper(@"C:\Projects\GameOfDrones\History\Mark1\GameOfDrones.ContestClient.exe");
-            var player2 = new ContestPlayerWrapper(@"C:\Projects\GameOfDrones\History\Mark1\GameOfDrones.ContestClient.exe");
+            //var player1 = new ContestPlayerWrapper(@"C:\Projects\GameOfDrones\History\Mark1\GameOfDrones.ContestClient.exe");
+            //var player2 = new ContestPlayerWrapper(@"C:\Projects\GameOfDrones\History\Mark1\GameOfDrones.ContestClient.exe");
+            var player1 = new TaskBasedPlayer();
+            var player2 = new TaskBasedPlayer();
 
-            using(var client = new ClientSimulator(3, 6, player1, player2))
+            using(var client = new ClientSimulator(6, 3, player1, player2))
             {
                 client.Initialize();
 

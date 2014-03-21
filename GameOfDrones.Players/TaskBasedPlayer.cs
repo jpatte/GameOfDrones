@@ -5,7 +5,7 @@ using System.Linq;
 namespace GameOfDrones
 {
     public enum TaskType { Attack, Defend, Unknown }
-    public enum Level { Medium, Low, High }
+    public enum Level { Medium = 1, Low = 0, High = 2 }
 
     public class Task
     {
@@ -203,7 +203,7 @@ namespace GameOfDrones
             var zoneCenters = zones.Select(z => z.Center).ToArray();
             var zoneDistances = zones.Select(z => new ZoneDistance { Zone = z }).ToArray();
 
-            foreach(var drone in context.EnemyDrones)
+            foreach(var drone in context.EnemyDrones.AsParallel())
             {
                 // based on the drone last movement, try to identify the zone it's trying to reach
                 var position = drone.Drone.Position;
@@ -247,7 +247,7 @@ namespace GameOfDrones
 
     class OneTaskPerZoneOrganizer : ITaskOrganizer
     {
-        const int nbrTurnsConsidered = 15;
+        const int nbrTurnsConsidered = 10;
         const double surroundingDistance = Zone.Radius * 5 / GameContext.MaxMoveDistance;
 
         class DroneWithDistance
@@ -346,7 +346,7 @@ namespace GameOfDrones
                 attackImportance = Level.Medium;
             }
 
-            foreach(var task in _tasks)
+            foreach(var task in _tasks.AsParallel())
             {
                 var zoneInfo = context.Zones[task.AssociatedZone.Id];
                 var zone = zoneInfo.Zone;
@@ -441,17 +441,16 @@ namespace GameOfDrones
 
         private void UpdateTaskPriority(Task task, ZoneInfo zone)
         {
-            Func<Level, int> levelToInt = lvl => (lvl == Level.Low ? 0 : (lvl == Level.Medium ? 1 : 2));
             var pointsEarned = (task.Type == TaskType.Defend ? task.RequiredTurns : nbrTurnsConsidered - task.RequiredTurns) / nbrTurnsConsidered;
 
             task.Priority = 0
                 + 4.0 * pointsEarned
-                + 2.0 * levelToInt(task.Importance)
-                + 0.5 * levelToInt(zone.StrategicValue)
+                + 2.0 * (int)task.Importance
+                + 0.5 * (int)zone.StrategicValue
                 - 0.5 * task.NbrRequiredDrones;
 
-            //Console.Error.WriteLine("{0}: {1} Priority={2:0.00} Pts={3:0.00} Req={4} Dist={5:0.00} Strat={6}",
-            //    task.AssociatedZone.Id, task.Type, task.Priority, pointsEarned, task.NbrRequiredDrones, task.RequiredDistance, zone.StrategicValue);
+            //Console.Error.WriteLine("{0}: {1} Priority={2:0.00} Pts={3:0.00} Req={4} Dist={5:0.00} Imp={6} Strat={7}",
+            //    task.AssociatedZone.Id, task.Type, task.Priority, pointsEarned, task.NbrRequiredDrones, task.RequiredTurns, task.Importance, zone.StrategicValue);
         }
     }
 
