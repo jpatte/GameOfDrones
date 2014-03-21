@@ -105,6 +105,7 @@ namespace GameOfDrones
         {
             return Enumerable.Range(0, source.Count).MinBy(id => selector(source[id]));
         }
+
         public static double DotProduct(Point v1a, Point v1b, Point v2a, Point v2b)
         {
             var x1 = v1b.X - v1a.X;

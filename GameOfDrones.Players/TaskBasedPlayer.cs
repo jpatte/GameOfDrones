@@ -10,12 +10,9 @@ namespace GameOfDrones
     public class Task
     {
         public TaskType Type { get; set; }
-        public Level Importance { get; set; }
-        public double Priority { get; set; }
         public int NbrRequiredDrones { get; set; }
-        public double RequiredTurns { get; set; }
-        public Zone AssociatedZone { get; set; }
-        public bool IsStillValid { get; set; }
+        public double AverageGainablePoints { get; set; }
+        public ZoneInfo AssociatedZone { get; set; }
     }
 
     public class ContextInfo
@@ -191,7 +188,7 @@ namespace GameOfDrones
 
     class BasicDroneActivityObserver : IDroneActivityObserver
     {
-        class ZoneDistance
+        class ZoneWithDistance
         {
             public Zone Zone { get; set; }
             public double Distance { get; set; }
@@ -201,7 +198,7 @@ namespace GameOfDrones
         {
             var zones = context.Context.Zones;
             var zoneCenters = zones.Select(z => z.Center).ToArray();
-            var zoneDistances = zones.Select(z => new ZoneDistance { Zone = z }).ToArray();
+            var zoneDistances = zones.Select(z => new ZoneWithDistance { Zone = z }).ToArray();
 
             foreach(var drone in context.EnemyDrones.AsParallel())
             {
@@ -260,7 +257,7 @@ namespace GameOfDrones
 
         private List<Task> _tasks;
 
-        private int CalculateRequiredDronesForAttack(IList<DroneWithDistance> myDrones, IEnumerable<DroneWithDistance> enemyDroneSquad, out double nbrTurnsToSucceed)
+        private int CalculateRequiredDronesForAttack(IList<DroneWithDistance> myDrones, IEnumerable<DroneWithDistance> enemyDroneSquad, out int nbrTurnsToSucceed)
         {
             var myTeamId = myDrones[0].Drone.TeamId;
             int nbrAllies = 0, nbrEnemies = 0;
@@ -290,7 +287,7 @@ namespace GameOfDrones
             return 0;
         }
 
-        private int CalculateRequiredDronesForDefense(IList<DroneWithDistance> myDrones, IEnumerable<DroneWithDistance> enemyDroneSquad, out double nbrTurnsToFail)
+        private int CalculateRequiredDronesForDefense(IList<DroneWithDistance> myDrones, IEnumerable<DroneWithDistance> enemyDroneSquad, out int nbrTurnsToFail)
         {
             var myTeamId = myDrones[0].Drone.TeamId;
             int nbrAllies = 0, nbrEnemies = 0;
@@ -323,36 +320,14 @@ namespace GameOfDrones
         public IList<Task> DefineTasks(ContextInfo context)
         {
             if(_tasks == null)
-                _tasks = context.Zones.Select(z => new Task { AssociatedZone = z.Zone, IsStillValid = true }).ToList();
-
-            // calculate importance of attack vs defense based on nbr of owned zones
-            var ownedZonesRatio = context.Context.Zones.Count(z => z.OwnerId == context.MyTeamId) / (double)context.Zones.Length;
-            var necessaryZoneRatio = 1.0 / context.Context.Teams.Count;
-
-            Level defenseImportance, attackImportance;
-            if(ownedZonesRatio > 0.8 * necessaryZoneRatio)
-            {
-                defenseImportance = Level.High;
-                attackImportance = Level.Low;
-            }
-            else if(ownedZonesRatio < 0.4 * necessaryZoneRatio)
-            {
-                defenseImportance = Level.Low;
-                attackImportance = Level.High;
-            }
-            else
-            {
-                defenseImportance = Level.Medium;
-                attackImportance = Level.Medium;
-            }
+                _tasks = context.Zones.Select(z => new Task { AssociatedZone = z }).ToList();
 
             foreach(var task in _tasks.AsParallel())
             {
-                var zoneInfo = context.Zones[task.AssociatedZone.Id];
+                var zoneInfo = task.AssociatedZone;
                 var zone = zoneInfo.Zone;
 
-                task.Type = (task.AssociatedZone.OwnerId == context.MyTeamId ? TaskType.Defend : TaskType.Attack);
-                task.Importance = (task.Type == TaskType.Attack ? attackImportance : defenseImportance);
+                task.Type = (zone.OwnerId == context.MyTeamId ? TaskType.Defend : TaskType.Attack);
 
                 Func<Point, int> nbrTurnsToReachZone = p => (int)Math.Ceiling(Math.Max(0, p.DistanceTo(zone.Center) - Zone.Radius) / GameContext.MaxMoveDistance);
 
@@ -375,8 +350,7 @@ namespace GameOfDrones
                     })
                     .ToArray();
 
-
-                // define nbr required drones
+                // calculate nbr of required drones & gainable points
                 if(task.Type == TaskType.Attack)
                 {
                     var defendingDrones = enemyDrones
@@ -385,7 +359,7 @@ namespace GameOfDrones
                         .ToArray();
 
                     // how much drones do I need to capture this zone?
-                    double nbrTurnsToSucceed;
+                    int nbrTurnsToSucceed;
                     int nbrRequiredDrones = this.CalculateRequiredDronesForAttack(myDrones, defendingDrones, out nbrTurnsToSucceed);
 
                     // if they are other attacking squads, how much drones do I need to make sure I can recapture the zone if necessary? 
@@ -396,7 +370,7 @@ namespace GameOfDrones
 
                     foreach(var enemySquad in otherAttackingDroneSquads)
                     {
-                        double nbrTurnsToSucceed2;
+                        int nbrTurnsToSucceed2;
                         int nbrRequiredDrones2 = this.CalculateRequiredDronesForAttack(myDrones, enemySquad, out nbrTurnsToSucceed2);
                         if(nbrTurnsToSucceed2 >= nbrTurnsToSucceed)
                         {
@@ -406,11 +380,11 @@ namespace GameOfDrones
                     }
 
                     task.NbrRequiredDrones = nbrRequiredDrones;
-                    task.RequiredTurns = nbrTurnsToSucceed;
+                    task.AverageGainablePoints = (nbrTurnsConsidered - nbrTurnsToSucceed) / (double)nbrTurnsConsidered;
                 }
                 else
                 {
-                    double nbrTurnsToFail = nbrTurnsConsidered;
+                    int nbrTurnsToFail = nbrTurnsConsidered;
                     int nbrRequiredDrones = 0;
 
                     // how much drones do I need to defend the zone against each attacking squad? 
@@ -420,7 +394,7 @@ namespace GameOfDrones
 
                     foreach(var enemySquad in attackingDroneSquads)
                     {
-                        double nbrTurnsToFail2;
+                        int nbrTurnsToFail2;
                         int nbrRequiredDrones2 = this.CalculateRequiredDronesForDefense(myDrones, enemySquad, out nbrTurnsToFail2);
                         if(nbrTurnsToFail2 <= nbrTurnsToFail)
                         {
@@ -430,27 +404,11 @@ namespace GameOfDrones
                     }
 
                     task.NbrRequiredDrones = nbrRequiredDrones;
-                    task.RequiredTurns = nbrTurnsToFail;
+                    task.AverageGainablePoints = nbrTurnsToFail / (double)nbrTurnsConsidered;
                 }
-
-                this.UpdateTaskPriority(task, zoneInfo);
             }
 
             return _tasks;
-        }
-
-        private void UpdateTaskPriority(Task task, ZoneInfo zone)
-        {
-            var pointsEarned = (task.Type == TaskType.Defend ? task.RequiredTurns : nbrTurnsConsidered - task.RequiredTurns) / nbrTurnsConsidered;
-
-            task.Priority = 0
-                + 4.0 * pointsEarned
-                + 2.0 * (int)task.Importance
-                + 0.5 * (int)zone.StrategicValue
-                - 0.5 * task.NbrRequiredDrones;
-
-            //Console.Error.WriteLine("{0}: {1} Priority={2:0.00} Pts={3:0.00} Req={4} Dist={5:0.00} Imp={6} Strat={7}",
-            //    task.AssociatedZone.Id, task.Type, task.Priority, pointsEarned, task.NbrRequiredDrones, task.RequiredTurns, task.Importance, zone.StrategicValue);
         }
     }
 
@@ -459,15 +417,46 @@ namespace GameOfDrones
         void AllocateDronesToTasks(ContextInfo context, IList<Task> tasks);
     }
 
-    class PriorityBasedBasicDroneAllocator : IDroneAllocator
+    class PriorityBasedDroneAllocator : IDroneAllocator
     {
         public void AllocateDronesToTasks(ContextInfo context, IList<Task> tasks)
         {
+            // calculate importance of attack vs defense
+            var ownedZonesRatio = context.Context.Zones.Count(z => z.OwnerId == context.MyTeamId) / (double)context.Zones.Length;
+            var necessaryZoneRatio = 1.0 / context.Context.Teams.Count;
+            Level defenseImportance = Level.Medium, attackImportance = Level.Medium;
+
+            if(ownedZonesRatio > 0.8 * necessaryZoneRatio)
+            {
+                defenseImportance = Level.High;
+                attackImportance = Level.Low;
+            }
+            else if(ownedZonesRatio < 0.4 * necessaryZoneRatio)
+            {
+                defenseImportance = Level.Low;
+                attackImportance = Level.High;
+            }
+            var taskImportances = tasks.ToDictionary(task => task, task => task.Type == TaskType.Attack ? attackImportance : defenseImportance);
+
+            // calculate tasks priorities
+            var taskPriorities = tasks.ToDictionary(task => task, task => 0
+                + 4.0 * task.AverageGainablePoints
+                + 2.0 * (int)taskImportances[task]
+                + 0.5 * (int)task.AssociatedZone.StrategicValue
+                - 1.0 * task.NbrRequiredDrones);
+
+            foreach(var task in tasks)
+            {
+                Console.Error.WriteLine("{0}: {1} Priority={2:0.00} Pts={3:0.00} Req={4} Imp={5} Strat={6}",
+                    task.AssociatedZone.Zone.Id, task.Type, taskPriorities[task], task.AverageGainablePoints, task.NbrRequiredDrones, taskImportances[task], task.AssociatedZone.StrategicValue);
+            }
+ 
+            // alllocate drones to tasks
             var availableDrones = context.MyDrones.ToList();
             foreach(var drone in availableDrones)
                 drone.CurrentTask = null;
 
-            var sortedTasks = tasks.OrderByDescending(t => t.Priority).ToArray();
+            var sortedTasks = tasks.OrderByDescending(t => taskPriorities[t]).ToArray();
             for(int i = 0; i < sortedTasks.Length && availableDrones.Any(); i++)
             {
                 var task = sortedTasks[i];
@@ -490,7 +479,7 @@ namespace GameOfDrones
                         break;
 
                     // Pick the drone which is closest to the task target)
-                    var candidate = availableDrones.MinBy(d => d.Drone.Position.DistanceTo(task.AssociatedZone.Center));
+                    var candidate = availableDrones.MinBy(d => d.Drone.Position.DistanceTo(task.AssociatedZone.Zone.Center));
                     availableDrones.Remove(candidate);
                     candidate.CurrentTask = task;
                     nbrAllocatedDrones++;
@@ -504,7 +493,7 @@ namespace GameOfDrones
                     var task = sortedTasks[i];
 
                     // Pick the drone which is closest to the task target)
-                    var candidate = availableDrones.MinBy(d => d.Drone.Position.DistanceTo(task.AssociatedZone.Center));
+                    var candidate = availableDrones.MinBy(d => d.Drone.Position.DistanceTo(task.AssociatedZone.Zone.Center));
                     availableDrones.Remove(candidate);
                     candidate.CurrentTask = task;
                 }
@@ -530,10 +519,10 @@ namespace GameOfDrones
             var task = droneInfo.CurrentTask;
             if(task != null)
             {
-                if(task.Type == TaskType.Defend && task.AssociatedZone.Contains(droneInfo.Drone.Position))
+                if(task.Type == TaskType.Defend && task.AssociatedZone.Zone.Contains(droneInfo.Drone.Position))
                     return droneInfo.Drone.Position;
 
-                return droneInfo.Drone.Position.GetZoneBorderPoint(task.AssociatedZone);
+                return droneInfo.Drone.Position.GetZoneBorderPoint(task.AssociatedZone.Zone);
             }
 
             return droneInfo.Drone.Position;
@@ -547,7 +536,7 @@ namespace GameOfDrones
         private readonly IDroneActivityObserver _droneActivityObserver = new BasicDroneActivityObserver();
         private readonly IZoneEvaluator _zoneEvaluator = new BasicZoneEvaluator();
         private readonly ITaskOrganizer _taskOrganizer = new OneTaskPerZoneOrganizer();
-        private readonly IDroneAllocator _droneAllocator = new PriorityBasedBasicDroneAllocator();
+        private readonly IDroneAllocator _droneAllocator = new PriorityBasedDroneAllocator();
         private readonly IDroneCommander _droneCommander = new BasicDroneCommander();
 
         public int TeamId { get; set; }
