@@ -245,6 +245,11 @@ namespace GameOfDrones
             return destination;
         }
 
+        public static Point GetMedianPoint(params Point[] points)
+        {
+            return new Point((int)points.Select(p => p.X).Average(), (int)points.Select(p => p.Y).Average());
+        }
+
         public static Point GetZoneBorderPoint(this Point position, Zone zone)
         {
             return position.GetIntermediatePoint(zone.Center, Zone.Radius - 5);

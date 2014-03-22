@@ -205,9 +205,8 @@ namespace GameOfDrones
                 // based on the drone last movement, try to identify the zone it's trying to reach
                 var position = drone.Drone.Position;
                 var previousPosition = drone.Drone.PreviousPosition;
-                var dx = position.X - previousPosition.X;
-                var dy = position.Y - previousPosition.Y;
-                if(dx == 0 && dy == 0) // this drone didn't move. Is it already inside a zone?
+
+                if(position.DistanceTo(previousPosition) < 2) // this drone didn't move. Is it already inside a zone?
                 {
                     drone.AssociatedZone = zones.FirstOrDefault(z => z.Contains(position));
                 }
@@ -445,12 +444,12 @@ namespace GameOfDrones
                 + 0.5 * (int)task.AssociatedZone.StrategicValue
                 - 1.0 * task.NbrRequiredDrones);
 
-            foreach(var task in tasks)
-            {
-                Console.Error.WriteLine("{0}: {1} Priority={2:0.00} Pts={3:0.00} Req={4} Imp={5} Strat={6}",
-                    task.AssociatedZone.Zone.Id, task.Type, taskPriorities[task], task.AverageGainablePoints, task.NbrRequiredDrones, taskImportances[task], task.AssociatedZone.StrategicValue);
-            }
- 
+            //foreach(var task in tasks)
+            //{
+            //    Console.Error.WriteLine("{0}: {1} Priority={2:0.00} Pts={3:0.00} Req={4} Imp={5} Strat={6}",
+            //        task.AssociatedZone.Zone.Id, task.Type, taskPriorities[task], task.AverageGainablePoints, task.NbrRequiredDrones, taskImportances[task], task.AssociatedZone.StrategicValue);
+            //}
+
             // alllocate drones to tasks
             var availableDrones = context.MyDrones.ToList();
             foreach(var drone in availableDrones)
@@ -501,6 +500,56 @@ namespace GameOfDrones
         }
     }
 
+    class FocusedDroneAllocator : IDroneAllocator
+    {
+        public void AllocateDronesToTasks(ContextInfo context, IList<Task> tasks)
+        {
+            // how many zones do I need?
+            var nbrZonesToTarget = (int)Math.Ceiling(1 + context.Zones.Length / (double)context.Context.Teams.Count);
+            nbrZonesToTarget++;
+
+            // get zones to consider
+            ZoneInfo[] zonesToTarget;
+
+            var myZones = context.Zones.Where(z => z.Zone.OwnerId == context.MyTeamId).ToArray();
+            if(myZones.Any())
+            {
+                var medianPoint = HelperExtensions.GetMedianPoint(myZones.Select(z => z.Zone.Center).ToArray());
+                zonesToTarget = context.Zones.OrderBy(z => medianPoint.DistanceTo(z.Zone.Center)).Take(nbrZonesToTarget).ToArray();
+            }
+            else
+            {
+                zonesToTarget = context.Zones;
+            }
+
+            // alllocate drones to tasks
+            var availableDrones = context.MyDrones.ToList();
+            foreach(var drone in availableDrones)
+                drone.CurrentTask = null;
+
+            var sortedTasks = tasks
+                .Where(t => zonesToTarget.Contains(t.AssociatedZone))
+                .OrderByDescending(t => t.NbrRequiredDrones == 0 ? int.MaxValue : t.AverageGainablePoints / t.NbrRequiredDrones)
+                .ToArray();
+            int nbrAssignedTasks = 0;
+            for(int i = 0; i < sortedTasks.Length && nbrAssignedTasks < nbrZonesToTarget && availableDrones.Any(); i++)
+            {
+                var task = sortedTasks[i];
+                if(availableDrones.Count() < task.NbrRequiredDrones)
+                    continue;
+
+                for(int nbrAllocatedDrones = 0; nbrAllocatedDrones < task.NbrRequiredDrones; nbrAllocatedDrones++)
+                {
+                    // Pick the drone which is closest to the task target)
+                    var candidate = availableDrones.MinBy(d => d.Drone.Position.DistanceTo(task.AssociatedZone.Zone.Center));
+                    availableDrones.Remove(candidate);
+                    candidate.CurrentTask = task;
+                }
+                nbrAssignedTasks++;
+            }
+        }
+    }
+
     public interface IDroneCommander
     {
         void SetDroneDestinations(ContextInfo context);
@@ -520,12 +569,29 @@ namespace GameOfDrones
             if(task != null)
             {
                 if(task.Type == TaskType.Defend && task.AssociatedZone.Zone.Contains(droneInfo.Drone.Position))
-                    return droneInfo.Drone.Position;
+                    return droneInfo.Drone.Position; // no need to move
 
                 return droneInfo.Drone.Position.GetZoneBorderPoint(task.AssociatedZone.Zone);
             }
-
-            return droneInfo.Drone.Position;
+            else
+            {
+                // send the drone on patrol
+                var bestZones = context.Zones.Where(z => z.Zone.OwnerId == context.MyTeamId).OrderByDescending(z => (int)z.StrategicValue).Take(2).ToArray();
+                if(bestZones.Length == 0)
+                {
+                    return droneInfo.Drone.Position;
+                }
+                else if(bestZones.Length == 1)
+                {
+                    return droneInfo.Drone.Position.GetZoneBorderPoint(bestZones[0].Zone);
+                }
+                else
+                {
+                    var c1 = bestZones[0].Zone.Center;
+                    var c2 = bestZones[1].Zone.Center;
+                    return new Point(c1.X + (c2.X - c1.X) / 2, c1.Y + (c2.Y - c1.Y) / 2);
+                }
+            }
         }
     }
 
@@ -533,16 +599,22 @@ namespace GameOfDrones
     {
         private ContextInfo _contextInfo;
 
-        private readonly IDroneActivityObserver _droneActivityObserver = new BasicDroneActivityObserver();
-        private readonly IZoneEvaluator _zoneEvaluator = new BasicZoneEvaluator();
-        private readonly ITaskOrganizer _taskOrganizer = new OneTaskPerZoneOrganizer();
-        private readonly IDroneAllocator _droneAllocator = new PriorityBasedDroneAllocator();
-        private readonly IDroneCommander _droneCommander = new BasicDroneCommander();
+        private IDroneActivityObserver _droneActivityObserver;
+        private IZoneEvaluator _zoneEvaluator;
+        private ITaskOrganizer _taskOrganizer;
+        private IDroneAllocator _droneAllocator;
+        private IDroneCommander _droneCommander;
 
         public int TeamId { get; set; }
 
         public void Initialize(GameContext context)
         {
+            _droneActivityObserver = new BasicDroneActivityObserver();
+            _zoneEvaluator = new BasicZoneEvaluator();
+            _taskOrganizer = new OneTaskPerZoneOrganizer();
+            _droneAllocator = (context.Teams.Count > 2 ? (IDroneAllocator)new FocusedDroneAllocator() : (IDroneAllocator)new PriorityBasedDroneAllocator());
+            _droneCommander = new BasicDroneCommander();
+
             _contextInfo = new ContextInfo(this.TeamId, context);
             _contextInfo.Zones = context.Zones.Select(z => new ZoneInfo(z)).ToArray();
             _contextInfo.MyDrones = context.GetDronesOfTeam(this.TeamId).Select(d => new MyDroneInfo(d)).ToArray();
