@@ -127,30 +127,20 @@ namespace GameOfDrones
 
         public static double DistanceToLine(this Point point, Point linePointA, Point linePointB)
         {
-            if(linePointA.X == linePointB.X)
-                return Math.Abs(linePointA.X - point.X);
-            if(linePointA.Y == linePointB.Y)
-                return Math.Abs(linePointA.Y - point.Y);
-
-            var dx = linePointB.X - linePointA.X;
-            var dy = linePointB.Y - linePointA.Y;
-            var slope = dy / dx;
-            return Math.Abs((slope * point.X - point.Y) - (slope * linePointA.X - linePointA.Y)) / Math.Sqrt(1 + slope * slope);
+            var a = linePointB.Y - linePointA.Y;
+            var b = linePointA.X - linePointB.X;
+            var c = linePointB.X * linePointA.Y - linePointA.X * linePointB.Y;
+            var denom = Math.Sqrt(a * a + b * b);
+            return Math.Abs(a * point.X + b * point.Y + c) / denom;
         }
 
         public static double[] RespectiveDistancesToLine(Point[] points, Point linePointA, Point linePointB)
         {
-            if(linePointA.X == linePointB.X)
-                return points.Select(p => (double)Math.Abs(linePointA.X - p.X)).ToArray();
-            if(linePointA.Y == linePointB.Y)
-                return points.Select(p => (double)Math.Abs(linePointA.Y - p.Y)).ToArray();
-
-            var dx = linePointB.X - linePointA.X;
-            var dy = linePointB.Y - linePointA.Y;
-            var slope = dy / dx;
-            var c = slope * linePointA.X - linePointA.Y;
-            var denom = Math.Sqrt(1 + slope * slope);
-            return points.Select(p => Math.Abs((slope * p.X - p.Y) - c) / denom).ToArray();
+            var a = linePointB.Y - linePointA.Y;
+            var b = linePointA.X - linePointB.X;
+            var c = linePointB.X * linePointA.Y - linePointA.X * linePointB.Y;
+            var denom = Math.Sqrt(a * a + b * b);
+            return points.Select(p => Math.Abs(a * p.X + b * p.Y + c) / denom).ToArray();
         }
 
         public static Point GetReachablePoint(this Point position, Point destination)
@@ -291,5 +281,4 @@ namespace GameOfDrones
             return context.Zones.OrderBy(z => z.Center.DistanceTo(p)).ToList();
         }
     }
-
 }

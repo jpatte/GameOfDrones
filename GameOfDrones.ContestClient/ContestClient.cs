@@ -9,7 +9,6 @@ namespace GameOfDrones
         private readonly TextReader _input;
         private readonly TextWriter _output;
         private IPlayer _player;
-        private bool _isFirstTurn;
 
         public ContestClient(TextReader input, TextWriter output, IPlayer player)
         {
@@ -31,7 +30,6 @@ namespace GameOfDrones
                 .Select(zoneId => new Zone(zoneId, this.ReadPoint())).ToList();
 
             _player.Initialize(this.Context);
-            _isFirstTurn = true;
         }
 
         public void Dispose()
@@ -50,7 +48,7 @@ namespace GameOfDrones
                 foreach(var drone in team.Drones)
                 {
                     drone.Position = this.ReadPoint();
-                    if(_isFirstTurn)
+                    if(this.Context.RemainingTurns == GameContext.MaxTurns)
                         drone.PreviousPosition = drone.Position;
                 }
             }
