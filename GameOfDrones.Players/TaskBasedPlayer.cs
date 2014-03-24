@@ -273,7 +273,7 @@ namespace GameOfDrones
 
     class OneTaskPerZoneOrganizer : ITaskOrganizer
     {
-        const int nbrTurnsConsidered = 30;
+        const int nbrTurnsConsidered = 15;
         const double surroundingDistance = Zone.Radius * 3 / GameContext.MaxMoveDistance;
 
         class DroneWithDistance
