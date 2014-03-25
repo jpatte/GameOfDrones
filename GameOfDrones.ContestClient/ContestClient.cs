@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 
@@ -8,12 +9,14 @@ namespace GameOfDrones
     {
         private readonly TextReader _input;
         private readonly TextWriter _output;
+        private readonly TextWriter _log;
         private IPlayer _player;
 
-        public ContestClient(TextReader input, TextWriter output, IPlayer player)
+        public ContestClient(TextReader input, TextWriter output, TextWriter log, IPlayer player)
         {
             _input = input;
             _output = output;
+            _log = log;
             _player = player;
         }
 
@@ -39,6 +42,9 @@ namespace GameOfDrones
 
         public void Update()
         {
+            var sw = new Stopwatch();
+            sw.Start();
+
             // update context
             foreach(var zone in this.Context.Zones)
                 zone.OwnerId = this.ReadIntegers()[0];
@@ -59,6 +65,9 @@ namespace GameOfDrones
                 this.WritePoint(droneDestination);
 
             this.Context.RemainingTurns--;
+
+            sw.Stop();
+            _log.WriteLine("Elapsed: {0:0} ms", sw.Elapsed.TotalMilliseconds);
         }
 
         private int[] ReadIntegers()

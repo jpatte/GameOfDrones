@@ -6,7 +6,7 @@ namespace GameOfDrones.Client
     {
         static void Main()
         {
-            using(var client = new ContestClient(Console.In, Console.Out, new TaskBasedPlayer()))
+            using(var client = new ContestClient(Console.In, Console.Out, Console.Error, new TaskBasedPlayer()))
             {
                 client.Initialize();
 

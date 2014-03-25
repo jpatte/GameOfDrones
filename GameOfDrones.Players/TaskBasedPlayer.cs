@@ -487,8 +487,9 @@ namespace GameOfDrones
 
     class MultiTasksPerZoneOrganizer : ITaskOrganizer
     {
-        const int nbrTurnsConsidered = 15;
-        const double surroundingDistance = Zone.Radius * 3 / GameContext.MaxMoveDistance;
+        private const int nearDistance = 3;
+        private const int moderateDistance = 12;
+        private const int farDistance = 25;
 
         class DroneWithDistance
         {
@@ -499,7 +500,7 @@ namespace GameOfDrones
         }
 
         private readonly TextWriter _log;
-        private List<Task> _tasks;
+        private List<Task> _tasks = new List<Task>();
 
         public MultiTasksPerZoneOrganizer(TextWriter log)
         {
@@ -511,22 +512,22 @@ namespace GameOfDrones
             var myTeamId = context.MyTeamId;
             Func<Point, Point, int> nbrTurnsToReachZone = (center, p) => (int)Math.Ceiling(Math.Max(0, p.DistanceTo(center) - Zone.Radius) / GameContext.MaxMoveDistance);
 
-            if(_tasks == null)
-                _tasks = context.Zones.Select(z => new Task { AssociatedZone = z }).ToList();
+            _tasks.Clear();
 
-            foreach(var task in _tasks.AsParallel())
+            foreach(var zoneInfo in context.Zones.AsParallel())
             {
-                var zoneInfo = task.AssociatedZone;
                 var zone = zoneInfo.Zone;
 
-                task.Type = (zone.OwnerId == context.MyTeamId ? TaskType.Defend : TaskType.Attack);
+                var taskType = (zone.OwnerId == context.MyTeamId ? TaskType.Defend : TaskType.Attack);
 
                 var myDrones = context.MyDrones
-                .Select(d => new DroneWithDistance
-                {
-                    Drone = d.Drone,
-                    NbrTurns = nbrTurnsToReachZone(zone.Center, d.Drone.Position)
-                }).ToArray();
+                    .Select(d => new DroneWithDistance
+                    {
+                        Drone = d.Drone,
+                        NbrTurns = nbrTurnsToReachZone(zone.Center, d.Drone.Position)
+                    })
+                    .Where(d => d.NbrTurns <= farDistance)
+                    .ToArray();
 
                 var enemyDrones = context.EnemyDrones
                     .Select(d => new DroneWithDistance
@@ -536,90 +537,97 @@ namespace GameOfDrones
                         TaskType = d.TaskType,
                         AssociatedZone = d.AssociatedZone
                     })
-                    .Where(d => d.NbrTurns <= surroundingDistance || d.AssociatedZone == zone)
+                    .Where(d => d.NbrTurns <= farDistance)
+                    .Where(d => d.NbrTurns <= nearDistance || ((d.AssociatedZone == zone || d.TaskType == TaskType.Unknown) && d.NbrTurns <= moderateDistance))
                     .ToArray();
 
 
-                _log.WriteLine("=== {0} on zone {1} ===", task.Type, zone.Id);
+                _log.WriteLine("=== {0} on zone {1} ===", taskType, zone.Id);
                 _log.WriteLine("My drones: {0}", string.Join(",", myDrones.OrderBy(d => d.NbrTurns).Select(d => d.NbrTurns)));
                 _log.WriteLine("Enemy drones: {0}", string.Join(", ", enemyDrones.OrderBy(d => d.NbrTurns).Select(d => string.Format("{0} ({1})", d.NbrTurns, d.Drone.TeamId))));
 
-                var droneWaves = myDrones.Concat(enemyDrones)
-                    .ToLookup(d => d.NbrTurns);
-
-                // calculate scores
                 var myScorePerInvolvedDrones = new int[context.MyDrones.Length + 1];
 
-                var presences = new int[context.Context.Teams.Count];
-                var ownerId = zone.OwnerId;
-                int myScore = 0;
-                int maxPresence = 0;
-                int maxTeamId = 0;
-                bool maxIsUnique = false;
-                for(int turn = 0; turn < nbrTurnsConsidered; turn++)
+                var nbrTeams = context.Context.Teams.Count;
+                var presences = new int[farDistance, nbrTeams];
+                var initialOwnerId = zone.OwnerId;
+
+                Func<int> calculateMyScore = () =>
                 {
-                    bool someDroneArrived = false;
-                    foreach(var drone in droneWaves[turn])
-                    {
-                        someDroneArrived = true;
-                        presences[drone.Drone.TeamId]++;
-                    }
+                    int score = 0;
+                    var ownerId = initialOwnerId;
 
-                    // update owner
-                    if(someDroneArrived)
+                    for(int t = 0; t < farDistance; t++)
                     {
-                        maxPresence = int.MinValue;
-                        for(int t = 0; t < presences.Length; t++)
+                        int maxValue = int.MinValue;
+                        int maxIndex = 0;
+                        bool isMaxUnique = false;
+
+                        for(int p = 0; p < nbrTeams; p++)
                         {
-                            if(presences[t] > maxPresence)
+                            var presence = presences[t, p];
+                            if(presence > maxValue)
                             {
-                                maxPresence = presences[t];
-                                maxTeamId = t;
-                                maxIsUnique = true;
+                                maxValue = presence;
+                                maxIndex = p;
+                                isMaxUnique = true;
                             }
-                            else if(presences[t] == maxPresence)
+                            else if(presence == maxValue)
                             {
-                                maxIsUnique = false;
+                                isMaxUnique = false;
                             }
                         }
 
-                        if(maxIsUnique)
-                            ownerId = maxTeamId;
+                        if(isMaxUnique)
+                            ownerId = maxIndex;
+
+                        if(ownerId == myTeamId)
+                            score++;
                     }
 
-                    // update scores
-                    if(ownerId == myTeamId)
-                        myScore++;
+                    return score;
+                };
 
-                    var myDronePresence = presences[myTeamId];
-                    if(myDronePresence < maxPresence)
-                    {
-                        myScorePerInvolvedDrones[myDronePresence] = myScore;
-                    }
-                    else //if(myDronePresence == tMax)
-                    {
-                        if(!maxIsUnique)
-                        {
-                            myScorePerInvolvedDrones[myDronePresence] = myScore;
-                        }
-                        else
-                        {
-                            var maxEnemyPresence = presences.Where(p => p < myDronePresence).Max();
-                            for(int p = maxEnemyPresence + 1; p <= myDronePresence; p++)
-                                myScorePerInvolvedDrones[p] = myScore;
-                        }
-                    }
+                foreach(var enemyDrone in enemyDrones)
+                {
+                    var teamId = enemyDrone.Drone.TeamId;
+                    for(int t = enemyDrone.NbrTurns; t < farDistance; t++)
+                        presences[t, teamId]++;
+                }
 
+                int nbrOfMyDrones = 0;
+                myScorePerInvolvedDrones[0] = calculateMyScore();
+                foreach(var drone in myDrones.OrderBy(d => d.NbrTurns))
+                {
+                    for(int t = drone.NbrTurns; t < farDistance; t++)
+                        presences[t, myTeamId]++;
+
+                    myScorePerInvolvedDrones[++nbrOfMyDrones] = calculateMyScore();
                 }
 
                 // calculate added value of each drone
                 var addedValues = myScorePerInvolvedDrones.Select((s, i) => i == 0 ? s : Math.Max(0, s - myScorePerInvolvedDrones[i - 1])).ToArray();
-
                 _log.WriteLine("addedValues: {0}", string.Join(", ", addedValues));
 
-                var bestNbrDrones = addedValues.IndexOfMax();
-                task.NbrRequiredDrones = bestNbrDrones;
-                task.AverageGainablePoints = myScorePerInvolvedDrones[bestNbrDrones];
+                for(int n = 0; n < addedValues.Length; n++)
+                {
+                    if(addedValues[n] > 0)
+                    {
+                        _tasks.Add(new Task
+                        {
+                            AssociatedZone = zoneInfo,
+                            Type = taskType,
+                            AverageGainablePoints = myScorePerInvolvedDrones[n],
+                            NbrRequiredDrones = n                   
+                        });
+                    }
+                }
+            }
+
+            foreach(var task in _tasks)
+            {
+                _log.WriteLine("{0}: {1} Pts={2} Req={3}",
+                    task.AssociatedZone.Zone.Id, task.Type, task.AverageGainablePoints, task.NbrRequiredDrones);
             }
 
             return _tasks;
@@ -733,9 +741,41 @@ namespace GameOfDrones
 
         public void AllocateDronesToTasks(ContextInfo context, IList<Task> tasks)
         {
-            // how many zones do I need?
-            var nbrZonesToTarget = (int)Math.Ceiling(1 + context.Zones.Length / (double)context.Context.Teams.Count);
-            nbrZonesToTarget++;
+            // calculate importance of attack vs defense
+            double nbrDrones = context.MyDrones.Length;
+            var nbrOwnedZones = context.Context.Zones.Count(z => z.OwnerId == context.MyTeamId);
+            var nbrZonesToTarget = 1 + (int)Math.Ceiling(context.Context.Zones.Count / (double)context.Context.Teams.Count);
+
+            Level defenseImportance, attackImportance;
+            if(nbrOwnedZones > nbrZonesToTarget)
+            {
+                defenseImportance = Level.High;
+                attackImportance = Level.Low;
+            }
+            else if(nbrOwnedZones == nbrZonesToTarget)
+            {
+                defenseImportance = Level.High;
+                attackImportance = Level.Medium;
+            }
+            else //if(nbrOwnedZones < nbrZonesToTarget)
+            {
+                defenseImportance = Level.Medium;
+                attackImportance = Level.High;
+            }
+
+            // calculate tasks priorities
+            var taskImportances = tasks.ToDictionary(task => task, task => task.Type == TaskType.Attack ? attackImportance : defenseImportance);
+            var taskPriorities = tasks.ToDictionary(task => task, task => 0
+                + 2.0 * task.AverageGainablePoints
+                + 4.0 * (int)taskImportances[task]
+                + 0.5 * (int)task.AssociatedZone.StrategicValue
+                - 50 * Math.Pow(task.NbrRequiredDrones / nbrDrones, 0.5));
+
+            foreach(var task in tasks)
+            {
+                _log.WriteLine("{0}: {1} Priority={2:0.00} Pts={3:0.00} Req={4} Imp={5} Strat={6}",
+                    task.AssociatedZone.Zone.Id, task.Type, taskPriorities[task], task.AverageGainablePoints, task.NbrRequiredDrones, taskImportances[task], task.AssociatedZone.StrategicValue);
+            }
 
             // get zones to consider
             ZoneInfo[] zonesToTarget;
@@ -753,24 +793,21 @@ namespace GameOfDrones
             _log.WriteLine("nbrZonesToTarget={0} | zonesToTarget={1}",
                 nbrZonesToTarget, string.Join(",", zonesToTarget.Select(z => z.Zone.Id)));
 
-            foreach(var task in tasks.OrderBy(t => t.AssociatedZone.Zone.Id))
-                _log.WriteLine("{0}: {1} Pts={2:0.00} Req={3}",
-                    task.AssociatedZone.Zone.Id, task.Type, task.AverageGainablePoints, task.NbrRequiredDrones);
-
             // alllocate drones to tasks
             var availableDrones = context.MyDrones.ToList();
             foreach(var drone in availableDrones)
                 drone.CurrentTask = null;
 
+            var targetedZoneIds = new HashSet<int>();
             var sortedTasks = tasks
                 .Where(t => zonesToTarget.Contains(t.AssociatedZone))
-                .OrderByDescending(t => t.NbrRequiredDrones == 0 ? int.MaxValue : t.AverageGainablePoints / t.NbrRequiredDrones)
+                .OrderByDescending(t => taskPriorities[t])
                 .ToArray();
-            int nbrAssignedTasks = 0;
-            for(int i = 0; i < sortedTasks.Length && nbrAssignedTasks < nbrZonesToTarget && availableDrones.Any(); i++)
+
+            for(int i = 0; i < sortedTasks.Length && targetedZoneIds.Count < nbrZonesToTarget && availableDrones.Any(); i++)
             {
                 var task = sortedTasks[i];
-                if(availableDrones.Count() < task.NbrRequiredDrones)
+                if(targetedZoneIds.Contains(task.AssociatedZone.Zone.Id) || availableDrones.Count() < task.NbrRequiredDrones)
                     continue;
 
                 for(int nbrAllocatedDrones = 0; nbrAllocatedDrones < task.NbrRequiredDrones; nbrAllocatedDrones++)
@@ -780,7 +817,7 @@ namespace GameOfDrones
                     availableDrones.Remove(candidate);
                     candidate.CurrentTask = task;
                 }
-                nbrAssignedTasks++;
+                targetedZoneIds.Add(task.AssociatedZone.Zone.Id);
             }
         }
     }
