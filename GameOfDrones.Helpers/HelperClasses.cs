@@ -261,6 +261,11 @@ namespace GameOfDrones
             return context.Teams.SelectMany(t => t.Drones).Where(d => zone.Contains(d.Position));
         }
 
+        public static IList<Drone> GetAllDrones(this GameContext context)
+        {
+            return context.Teams.SelectMany(t => t.Drones).ToArray();
+        }
+
         public static IList<Drone> GetDronesOfTeam(this GameContext context, int teamId)
         {
             return context.Teams[teamId].Drones;
