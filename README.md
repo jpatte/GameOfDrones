@@ -1,4 +1,5 @@
-= Codingame contest "Game of Drones" - My submission
+Codingame contest "Game of Drones" - My submission
+==================================================
 
 This is the code I wrote during March 15th and March 25th 2014 to compete in the ["Game of Drones" coding contest](http://www.codingame.com/cg/?target=language&id=2#!challenge:parrot). 
 
